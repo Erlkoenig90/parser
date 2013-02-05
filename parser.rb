@@ -13,13 +13,35 @@ class NonTerminal
 	end
 end
 
+class NTermInst
+	attr_accessor :nonTerminal, :decision, :children
+	def initialize(nt)
+		@nonTerminal = nt
+		@decision = -1
+		@children = []
+	end
+	def to_s(depth = 0)
+		ind = "  " * depth
+		ind + "[#{nonTerminal}/#{decision}" +
+		if(children.size == 0)
+			"]\n"
+		else
+			"\n" + children.map { |c| if(c.is_a?(String)) then ind + "  " + c.inspect + "\n" else c.to_s(depth+1) end }.join("") + ind + "]\n"
+		end
+	end
+end
+
 class DNode
-	attr_accessor :nonTerminal, :index, :strIndex, :stack
-	def initialize(n, i, s, si)
+	attr_accessor :nonTerminal, :index, :strIndex, :stack, :pnode, :pindex
+	def initialize(n, i, s, si, pn)
 		@nonTerminal = n
 		@index = i
 		@stack = s
 		@strIndex = si
+		@pnode = pn
+		if(pn != nil)
+			@pindex = pn.index
+		end
 	end
 end
 
@@ -33,7 +55,7 @@ class Grammar < Hash
 		queue = []
 		stack = [start]
 		index = 0
-		puts "STACK #{stack}"
+		debug "STACK #{stack}\n"
 		
 		steps = 0
 		while(!stack.empty? || index != str.length)
@@ -41,50 +63,83 @@ class Grammar < Hash
 			if(!stack.empty? && stack.last.is_a?(String) && (stack.last.length <= str.length-index) && str[index...index+stack.last.length] == stack.last)
 				# Wegakzeptieren
 				top = stack.pop
-				puts("Akzeptiere String #{top.inspect}")
+				debug("Akzeptiere String #{top.inspect}\n")
 				index += top.length
-				if(top == "();")
-					puts "FOOBAR #{index}/#{str.length}   #{stack}"
-				end
 			elsif(!stack.empty? && stack.last.is_a?(NonTerminal) && stack.last.rules.size == 1)
 				# Regel direkt anwenden
 				top = stack.pop
-				puts "#{top} : Direkt ersetzen -> #{top.rules[0]}"
+				debug "#{top} : Direkt ersetzen -> #{top.rules[0]}\n"
 				stack.concat(top.rules[0].reverse)
 			else
 				if(!stack.empty? && stack.last.is_a?(NonTerminal))
 					# Entscheidung einreihen
-					puts "#{stack} : Einreihen"
 					top = stack.pop
-					queue.push(DNode.new(top, -1, stack, index))
+					debug "#{top} : Einreihen\n"
+					queue.push(DNode.new(top, -1, stack, index, if(queue.empty?) then nil else queue.first end))
 				else
-					# Dead end - Vergesse stack
+					# Sackgasse - Vergesse stack
 				end
 
 
 				# Nächsten in Schlange
-				if(queue.empty?)
+				if(queue.empty? || (queue.first.index == queue.first.nonTerminal.rules.length - 1 && queue.size < 2))
 					# Kann im aktuellen Pfad nichts mehr machen, andere Pfade gibt es nicht => Nicht akzeptiert
-					raise("Nicht akzeptiert mit #{steps} Schritten")
+					return nil
 				else
 					decide = queue.first
 					decide.index = decide.index+1
-					if(decide.index == decide.nonTerminal.rules.length-1)
-						stack = decide.stack
+					if(decide.index == decide.nonTerminal.rules.length)
+						debug("#{queue.first.nonTerminal} : Dead end go to #{queue[1].nonTerminal}/#{queue[1].index+1}")
 						queue.delete_at(0)
-						$stdout.write "#{decide.nonTerminal}: Last Decision"
+						decide = queue.first
+						decide.index = decide.index+1
+						
+#						$stdout.write "#{decide.nonTerminal}: Last Decision"
 					else
-						stack = decide.stack.clone
-						$stdout.write "#{decide.nonTerminal}: Decide #{decide.index}"
+						debug "#{decide.nonTerminal}: Decide #{decide.index}"
 					end
-					puts " -> #{decide.nonTerminal.rules[decide.index]}"
+					stack = decide.stack.clone
+					debug " ++ #{decide.nonTerminal.rules[decide.index]}\n"
 					stack.concat(decide.nonTerminal.rules[decide.index].reverse)
 					index = decide.strIndex
 				end
 			end
-			puts "STACK #{stack}"
+			debug "STACK #{stack}\n"
 		end
-		puts "Akzeptiere mit #{steps} Schritten"
+		trace = []
+		if(!queue.empty?)
+			d = queue.first
+			trace << d.index
+			while(d.pnode != nil)
+				trace << d.pindex
+				d = d.pnode
+			end
+		end
+		
+		
+		root = NTermInst.new(start)
+		stack = [root]
+		while(!stack.empty?)
+			top = stack.pop()
+			top.decision = if(top.nonTerminal.rules.size>1) then trace.pop() else 0 end
+			
+			s = top.nonTerminal.rules[top.decision].size
+			top.children = Array.new(s)
+			
+			(s-1).downto(0) { |i|
+				sym = top.nonTerminal.rules[top.decision][i]
+				top.children[i] = if(sym.is_a?(String))
+					sym
+				else
+					x = NTermInst.new(sym)
+					stack.push(x)
+					x
+				end
+			}
+		end
+		
+		debug "Akzeptiere mit #{steps} Schritten\n"
+		root
 	end
 	def to_s
 		map { |k,v|
@@ -92,6 +147,9 @@ class Grammar < Hash
 				"#{v} => #{r}"
 			}.join("\n")
 		}.join("\n")
+	end
+	def debug(str)
+#		$stdout.write(str)
 	end
 end
 
@@ -104,14 +162,14 @@ g["Type"] << ["int"]
 g["Type"] << ["void"]
 g["Name"] << [g["Alpha"]]
 g["Name"] << [g["Alpha"], g["Name2"]]
-g["Name2"] << [g["Name2"], g["Alnum"]]
+g["Name2"] << [g["Alnum"], g["Name2"]]
 g["Name2"] << []
 g["SpaceE"] << [g["Space"]]
 g["SpaceE"] << []
-g["Space"] << [g["SpaceE"], " "]
-g["Space"] << [g["SpaceE"], "\t"]
-g["Space"] << [g["SpaceE"], "\n"]
-g["Space"] << [g["SpaceE"], "\r"]
+g["Space"] << [" ",  g["SpaceE"]]
+g["Space"] << ["\t", g["SpaceE"]]
+g["Space"] << ["\n", g["SpaceE"]]
+g["Space"] << ["\r", g["SpaceE"]]
 
 for i in 0..25 do
 	a = [[[65 + i].pack("C")], [[97 + i].pack("C")]]
@@ -127,4 +185,4 @@ g.start = g["Global"]
 
 str = "   int deineMutter ();\nvoid yourmom ();  "
 
-g.parse(str)
+p g.parse(str)
