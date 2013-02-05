@@ -30,12 +30,14 @@ class Grammar < Hash
 		@start = nil
 	end
 	def parse(str)
-		track = []
+		queue = []
 		stack = [start]
 		index = 0
 		puts "STACK #{stack}"
 		
+		steps = 0
 		while(!stack.empty? || index != str.length)
+			steps += 1
 			if(!stack.empty? && stack.last.is_a?(String) && (stack.last.length <= str.length-index) && str[index...index+stack.last.length] == stack.last)
 				# Wegakzeptieren
 				top = stack.pop
@@ -44,30 +46,36 @@ class Grammar < Hash
 				if(top == "();")
 					puts "FOOBAR #{index}/#{str.length}   #{stack}"
 				end
-			elsif(!stack.empty? && stack.last.is_a?(NonTerminal))
+			elsif(!stack.empty? && stack.last.is_a?(NonTerminal) && stack.last.rules.size == 1)
+				# Regel direkt anwenden
 				top = stack.pop
-				if(top.rules.size == 1)
-					puts "#{top} : Direkt ersetzen -> #{top.rules[0]}"
-				else
-					puts "#{top} : Entscheide #0   -> #{top.rules[0]}"
-					# Entscheiden
-					track.push(DNode.new(top, 0, stack.clone, index))
-				end
+				puts "#{top} : Direkt ersetzen -> #{top.rules[0]}"
 				stack.concat(top.rules[0].reverse)
 			else
-				# Backtrack
-				if(track.empty?)
-					raise("Not accepted")
+				if(!stack.empty? && stack.last.is_a?(NonTerminal))
+					# Entscheidung einreihen
+					puts "#{stack} : Einreihen"
+					top = stack.pop
+					queue.push(DNode.new(top, -1, stack, index))
 				else
-					decide = track.last
+					# Dead end - Vergesse stack
+				end
+
+
+				# Nächsten in Schlange
+				if(queue.empty?)
+					# Kann im aktuellen Pfad nichts mehr machen, andere Pfade gibt es nicht => Nicht akzeptiert
+					raise("Nicht akzeptiert mit #{steps} Schritten")
+				else
+					decide = queue.first
 					decide.index = decide.index+1
 					if(decide.index == decide.nonTerminal.rules.length-1)
 						stack = decide.stack
-						track.pop()
-						$stdout.write "#{decide.nonTerminal}: Last Backtrack"
+						queue.delete_at(0)
+						$stdout.write "#{decide.nonTerminal}: Last Decision"
 					else
 						stack = decide.stack.clone
-						$stdout.write "#{decide.nonTerminal}: Backtrack #{decide.index}"
+						$stdout.write "#{decide.nonTerminal}: Decide #{decide.index}"
 					end
 					puts " -> #{decide.nonTerminal.rules[decide.index]}"
 					stack.concat(decide.nonTerminal.rules[decide.index].reverse)
@@ -76,7 +84,7 @@ class Grammar < Hash
 			end
 			puts "STACK #{stack}"
 		end
-		puts "Akzeptiere"
+		puts "Akzeptiere mit #{steps} Schritten"
 	end
 	def to_s
 		map { |k,v|
@@ -96,14 +104,14 @@ g["Type"] << ["int"]
 g["Type"] << ["void"]
 g["Name"] << [g["Alpha"]]
 g["Name"] << [g["Alpha"], g["Name2"]]
-g["Name2"] << [g["Alnum"], g["Name2"]]
+g["Name2"] << [g["Name2"], g["Alnum"]]
 g["Name2"] << []
 g["SpaceE"] << [g["Space"]]
 g["SpaceE"] << []
-g["Space"] << [" ",  g["SpaceE"]]
-g["Space"] << ["\t", g["SpaceE"]]
-g["Space"] << ["\n", g["SpaceE"]]
-g["Space"] << ["\r", g["SpaceE"]]
+g["Space"] << [g["SpaceE"], " "]
+g["Space"] << [g["SpaceE"], "\t"]
+g["Space"] << [g["SpaceE"], "\n"]
+g["Space"] << [g["SpaceE"], "\r"]
 
 for i in 0..25 do
 	a = [[[65 + i].pack("C")], [[97 + i].pack("C")]]
