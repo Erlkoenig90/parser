@@ -192,11 +192,12 @@ class Grammar < Hash
 	end
 	# Gibt die Grammatik für die modifzierte BNF zurück. Diese erlaubt die Eingabe beliebiger Sonderzeichen
 	def Grammar.BNF
-		@@bnf ||= Grammar.new(["BNF", "Def", "Rules", "Rule", "Symbol", "String", "Chars", "Char", "NTerm", "Name", "Name2", "SpaceE", "Space", "Alpha", "Alnum"]) { |g|
-			g["BNF"].rules = [[g["Def"], "\n", g["BNF"]], [g["Def"]], []]
+		@@bnf ||= Grammar.new(["BNF", "BNF2", "Def", "Rules", "Rules2", "Rule", "Symbol", "String", "Chars", "Char", "NTerm", "Name", "Name2", "SpaceE", "Space", "Alpha", "Alnum"]) { |g|
+			g["BNF"] <<  [g["Def"], g["BNF2"]]
+			g["BNF2"].rules = [["\n", g["Def"], g["BNF2"]], [], ["\n", g["BNF2"]]]
 			g["Def"] << [g["SpaceE"], g["NTerm"], g["SpaceE"], "::=", g["Rules"]]
-			g["Rules"] << [g["Rule"], "|", g["Rules"]]
-			g["Rules"] << [g["Rule"]]
+			g["Rules"] << [g["Rule"], g["Rules2"]]
+			g["Rules2"].rules= [["|", g["Rule"], g["Rules2"]], []]
 			g["Rule"] << [g["SpaceE"]]
 			g["Rule"] << [g["SpaceE"], g["Symbol"], g["Rule"]]
 
@@ -234,29 +235,57 @@ class Grammar < Hash
 	# Grammatik aus BNF einlesen und als Instanz von 'Grammar' zurückgeben. Verwendet die BNF-Grammatik.
 	def Grammar.fromBNF(str)
 		b = Grammar.BNF
-		Grammar[b.parse(str).collectRecursive(b["BNF"], b["Def"]).map { |df|
+		s = nil
+		defs = b.parse(str).collectRecursive(b["BNF2"], b["Def"])
+		g = Grammar.new(defs.map { |df| df[1][1].collectString })
+		defs.each { |df|
 #			puts "foobar"
 			name = df[1][1].collectString
-			nt = NonTerminal.new(name)
-			nt.rules = df[4].collectRecursive(b["Rules"], b["Rule"]).map { |rule|
+			nt = g[name]
+			if(s == nil) then s = nt end		# Verwende das 1. definierte N-Symbol als Startsymbol
+			nt.rules = df[4].collectRecursive(b["Rules2"], b["Rule"]).map { |rule|
 				rule.collectRecursive(b["Rule"], b["Symbol"]).map { |sym|
 					if(sym.decision == 0)
 						eval(sym[0].collectString)
 					else
-						b[sym[0][1].collectString]
+						g[sym[0][1].collectString]
 					end
 				}
 			}
-			[name, nt]
-		}]
+		}
+		g.start = s
+		g
 	end
 end
 
 # == Beispiele ==
-txtBnf = Grammar.BNF.to_s	# Grammatik für BNF in Textform umwandeln
-puts txtBnf
-puts "==============================="
-g = Grammar.fromBNF(txtBnf)	# Die Grammatik in Textform parsen, Grammar-Objekt erzeugen
-puts g.to_s					# Textform des Grammar-Objekts ausgeben. Sollte das selbe ausgeben wie oben
+if(false)
+	txtBnf = Grammar.BNF.to_s	# Grammatik für BNF in Textform umwandeln
+	puts txtBnf
+	puts "==============================="
+	g = Grammar.fromBNF(txtBnf)	# Die Grammatik in Textform parsen, Grammar-Objekt erzeugen
+	puts g.to_s					# Textform des Grammar-Objekts ausgeben. Sollte das selbe ausgeben wie oben
+end
 
+if(true)
+	# Grammatik für arithmetische Ausdrücke in BNF angeben und einlesen
+	# \t, \r sind hier escaped wegen ruby
+	arith = Grammar.fromBNF(<<BNF)
+<E> ::= "(" <SpaceE> <E> <SpaceE> <Infix> <SpaceE> <E> <SpaceE> ")" | <Fun> <SpaceE> "(" <SpaceE> <E> <SpaceE> ")" | <Literal>
+<Infix> ::= "+" | "-" | "*" | "/" | "%"
+<Fun> ::= "sin" | "cos" | "sqrt"
+<Literal> ::= <Digits> | <Digits> "." <Digits>
+<Digit> ::= "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
+<Digits> ::= <Digit> <DigitsE>
+<DigitsE> ::= <Digit> <DigitsE> | 
+<SpaceE> ::= <Space> | 
+<Space> ::= " " <SpaceE> | "\\t" <SpaceE> | "\\r" <SpaceE>
+BNF
+
+	puts arith.to_s
+	
+	# Ausdruck parsen und Parser-Baum ausgeben
+	expr = "((3+(7.9831*sqrt(33.5)))-sin(0.1234))"
+	puts arith.parse(expr).inspect
+end
 
