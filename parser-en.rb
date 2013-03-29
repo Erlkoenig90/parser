@@ -1,7 +1,7 @@
-# Nichtterminal-Symbol
+# nonterminal-symbol
 class NonTerminal
-	attr_reader :name		# String
-	attr_accessor :rules	# Die möglichen Produktionsregeln für dieses Symbol. Array aus Arrays aus Strings oder anderen NonTerminal-Instanzen
+	attr_reader :name	   # String
+	attr_accessor :rules	# Production rules for this symbol. Array of Arrays of Strings or other NonTerminal instances
 	def initialize(n)
 		@name = n
 		@rules = []
@@ -17,17 +17,17 @@ class NonTerminal
 	end
 end
 
-# Ein geparstes Nichtterminalsymbol
+# A parsed nonterminal symbol
 class NTermInst
-	attr_accessor :nonTerminal	# Das dazugehörige Nichtterminalsymbol
-	attr_accessor :decision		# Index der angewandten Produktionsregel, um auf den geparsten Text zu kommen
-	attr_accessor :children		# Instanzen der nach Anwendung der Produktionsregel produzierten Symbole; Array aus Strings und weiteren NTermInst-Instanzen
+	attr_accessor :nonTerminal  # The accompanying NonTerminal instance
+	attr_accessor :decision	 # Index of the production rule applied to get the parsing result ( =index of the child in the decision-tree)
+	attr_accessor :children	 # Instances of the symbols produced after applying the production rule; Array of Strings and more NTermInst-Instances
 	def initialize(nt)
 		@nonTerminal = nt
 		@decision = -1
 		@children = []
 	end
-	# Rekursive textuelle Darstellung (Parser-Baum)
+	# Recursive textbased representation (Parser-Tree)
 	def to_s(depth = 0)
 		ind = "  " * depth
 		ind + "[#{nonTerminal}/#{decision}" +
@@ -40,17 +40,17 @@ class NTermInst
 	def inspect
 		to_s
 	end
-	# Rekursiv aus allen Kind-Elementen diejenigen heraussuchen, die Instanzen des Nichtterminalsymbols contNT sind, und die enthaltenen
-	# Kind-Elemente vom Typ childclass einsammeln und als Array zurückgeben. childclass kann ein NonTerminal oder eine ruby-Klasse sein.
-	# Wird benutzt um rekursive Grammatik-Definitionen (Schleifen) als Array auszulesen
+	# Search all child elements recursively which are instances of the nonterminal symbol contNT, collect all contained child elements
+	# which are of type childclass and return them as an array. childclass can be a ruby-class or a NonTerminal instance.
+	# Used to read in recursive grammar-definitions as a flat array
 	def collectRecursive(contNT, childclass)
 		@children.select { |c|
 			(childclass.is_a?(Class) && c.is_a?(childclass)) ||
 				(childclass.is_a?(NonTerminal) && c.is_a?(NTermInst) && c.nonTerminal == childclass) } +
 			@children.select { |c| c.is_a?(NTermInst) && c.nonTerminal == contNT }.inject([]) { |old,obj| old+obj.collectRecursive(contNT, childclass) }
 	end
-	# Rekursiv alle eingelesenen Strings ( = Terminalsymbol-Folgen) zu einem String zusammenfügen.
-	# Wird benutzt um die textuelle Darstellung dieser Instanz im Quell-Text zu ermitteln
+	# Recursively collect all read in strings ( of Terminal symbols ) and return them as one ruby string
+	# Used to get the textual representation of this instance in the parsed string
 	def collectString
 		@children.map { |c| if(c.is_a?(String)) then c else c.collectString end }.join("")
 	end
@@ -59,15 +59,15 @@ class NTermInst
 	end
 end
 
-# Repräsentiert einen Zweig im Entscheidungsbaum des NPDA. Wird in einer Warteschlange verwaltet um eine Breitensuche über den Entscheidungsbaum
-# durchzuführen
+# Represents a branch in the decision-tree of the non-deterministic stack machine (NPDA). Is managed via a query to run a breadth first search
+# on that tree.
 class DNode
-	attr_accessor :nonTerminal		# Das Nichtterminalsymbol, zwischen dessen Regeln man sich hier entscheidet
-	attr_accessor :index			# Aktuell verfolgte Entscheidung (index für das NonTerminal#rules Array)
-	attr_accessor :strIndex			# Index im Eingabetext
-	attr_accessor :stack			# Stack zum Zeitpunkt der Entscheidung
-	attr_accessor :pnode			# Vorheriger Zweig
-	attr_accessor :pindex			# Entscheidung, die beim vorherigen Zweig gemacht wurde, um zu diesem Zweig zu gelangen
+	attr_accessor :nonTerminal	  # The nonterminal symbol, whose rules are the subject of the decision of this node in the tree
+	attr_accessor :index			# Currenty processed decision (index of the NonTerminal#rules Array)
+	attr_accessor :strIndex		 # Index in input string
+	attr_accessor :stack			# Stack at the point of the decision
+	attr_accessor :pnode			# Previous(parent) branch
+	attr_accessor :pindex		   # Decision that was made in the parent branch to reach this branch
 	def initialize(n, i, s, si, pn)
 		@nonTerminal = n
 		@index = i
@@ -80,74 +80,74 @@ class DNode
 	end
 end
 
-# Repräsentiert eine Grammatik in ruby-Objekten. Hash vom Namen der Nichtterminalsymbole auf NonTerminal -Instanzen.
+# Represents a grammar as ruby-objects. Hash of names of nonterminal symbols to the corresponding NonTerminal instances
 class Grammar < Hash
-	attr_accessor :start	# Startsymbol (Anfangsinhalt des Stacks)
+	attr_accessor :start	# Start symbol (initial content of the stack)
 	def initialize(nn,&block)
 		nn.each { |n| self[n] = NonTerminal.new(n) }
 		@start = nil
 		if(block != nil) then block.call(self) end
 	end
-	# String mit dieser Grammatik parsen. Gibt nil zurück falls nicht akzeptiert, ansonsten eine DNode-Instanz für den Parser-Baum
+	# Parse string with this grammar. Returns nil in case of non-acceptance, else the root of the parser tree as a DNode-instance else
 	def parse(str)
-		queue = []			# Warteschlange aus DNode-Objekten, für die Breitensuche im Entscheidungsbaum
-		stack = [start]		# Stack des NPDA
-		index = 0			# Position im Eingabestring
+		queue = []		  # Queue of DNode-Instances, for the breadth first search in the decision tree
+		stack = [start]	 # Stack of the NPDA
+		index = 0		   # Position in the input string
 #		debug "STACK #{stack}\n"
-		
+	   
 		while(!stack.empty? || index != str.length)
 			if(!stack.empty? && stack.last.is_a?(String) && (stack.last.length <= str.length-index) && str[index...index+stack.last.length] == stack.last)
-				# String Wegakzeptieren
+				# Accept-away the string (advance)
 				top = stack.pop
 #				debug("Akzeptiere String #{top.inspect}\n")
 				index += top.length
 			elsif(!stack.empty? && stack.last.is_a?(NonTerminal) && stack.last.rules.size == 1)
-				# Regel direkt anwenden (keine Entscheidung nötig)
+				# Apply rule directly, no decision neccessary
 				top = stack.pop
 #				debug "#{top} : Direkt ersetzen -> #{top.rules[0]}\n"
 				stack.concat(top.rules[0].reverse)
 			else
 				if(!stack.empty? && stack.last.is_a?(NonTerminal))
-					# Entscheidung einreihen in Warteschlange
+					# Queue decision
 					top = stack.pop
 #					debug "#{top} : Einreihen\n"
 					queue.push(DNode.new(top, -1, stack, index, if(queue.empty?) then nil else queue.first end))
 				else
-					# Sackgasse - Vergesse stack
+					# Dead end - forget stack
 				end
 
 
-				# Nächste Entscheidung in Schlange anwenden
+				# Apply nex dicision in the queue
 				if(queue.empty? || (queue.first.index == queue.first.nonTerminal.rules.length - 1 && queue.size < 2))
-					# Kann im aktuellen Pfad nichts mehr machen, andere Pfade gibt es nicht => Nicht akzeptiert
+					# Can't continue in the current path(branch), no other existing paths => Don't accept string
 					return nil
 				else
 					decide = queue.first
 					decide.index = decide.index+1
-					# Letzte Entscheidung für dieses DNode-Objekt; nächstes nehmen
+					# Last decision for this DNode-object; take the next from the queue
 					if(decide.index == decide.nonTerminal.rules.length)
 #						debug("#{queue.first.nonTerminal} : Dead end go to #{queue[1].nonTerminal}/#{queue[1].index+1}")
 						queue.delete_at(0)
 						decide = queue.first
 						decide.index = decide.index+1
 						
-#						$stdout.write "#{decide.nonTerminal}: Last Decision"
+#						debug("#{decide.nonTerminal}: Last Decision")
 					else
-						# Nächste Entscheidung für diesen Zweig
+						# Next decision for this branch
 #						debug "#{decide.nonTerminal}: Decide #{decide.index}"
 					end
-					# Stack dieses Zweigs übernehmen
+					# Use the stack of this branch
 					stack = decide.stack.clone
 #					debug " ++ #{decide.nonTerminal.rules[decide.index]}\n"
-					# Entschieden -> Produktionsregel anwenden (Stack auffüllen)
+					# Decided -> Apply production rule (Fill stack)
 					stack.concat(decide.nonTerminal.rules[decide.index].reverse)
-					# Zur Position dieses Zweigs im String springen
+					# Jump to the position of this branch in the input string
 					index = decide.strIndex
 				end
 			end
 #			debug "STACK #{stack}\n"
 		end
-		# Zurückverfolgen, wann welche Entscheidung getroffen wurde, und Array aus den Indicis generieren (rückwärts)
+		# Backtrace what decision was applied when, to generate array of indices of decisions (backwards)
 		trace = []
 		if(!queue.empty?)
 			d = queue.first
@@ -157,37 +157,37 @@ class Grammar < Hash
 				d = d.pnode
 			end
 		end
-		
-		# Parserbaum erzeugen
+	   
+		# Generate parser tree
 		root = NTermInst.new(start)
 		stack = [root]
 		while(!stack.empty?)
 			top = stack.pop()
-			# Einlesen, welche Entscheidung hier getroffen wurde
+			# What decision was done here
 			top.decision = if(top.nonTerminal.rules.size>1) then trace.pop() else 0 end
-			
+		   
 			s = top.nonTerminal.rules[top.decision].size
 			top.children = Array.new(s)
-			
-			# Für alle Symbole auf der rechten Seite dieser Produktionsregel...
+		   
+			# For all symbols on the right side of this production rule...
 			(s-1).downto(0) { |i|
 				sym = top.nonTerminal.rules[top.decision][i]
 				top.children[i] = if(sym.is_a?(String))
-					# String ( = Terminalsymbol-Folge) => In Parserbaum einfügen
+					# String ( = Sequence of terminal symbols) => Put into parser tree
 					sym
 				else
-					# Nichtterminalsymbol => auf Stack
+					# Non terminal symbols => to stack
 					x = NTermInst.new(sym)
 					stack.push(x)
 					x
 				end
 			}
 		end
-		
-#		debug "Akzeptiere\n"
+	   
+#		debug "Accepting\n"
 		root # Parserbaum zurückgeben
 	end
-	# BNF-Darstellung dieser Grammatik zurückgeben
+	# Return textual BNF of this grammar
 	def to_s
 		map { |k,v|
 			v.to_s + " ::= " + v.rules.map { |r| r.map{|e| e.inspect}.join(" ") }.join(" | ")
@@ -197,9 +197,9 @@ class Grammar < Hash
 		to_s
 	end
 #	def debug(str)
-#		$stdout.write(str)
+#	   $stdout.write(str)
 #	end
-	# Gibt die Grammatik für die modifzierte BNF zurück. Diese erlaubt die Eingabe beliebiger Sonderzeichen
+	# Returns the Grammar of the modified BNF, which allows parsing arbitrary special chars
 	def Grammar.BNF
 		@@bnf ||= Grammar.new(["BNF", "BNF2", "Def", "Rules", "Rules2", "Rule", "Symbol", "String", "Chars", "Char", "NTerm", "Name", "Name2", "SpaceE", "Space", "Alpha", "Alnum"]) { |g|
 			g["BNF"] <<  [g["Def"], g["BNF2"]]
@@ -241,17 +241,17 @@ class Grammar < Hash
 			g.start = g["BNF"]
 		}
 	end
-	# Grammatik aus BNF einlesen und als Instanz von 'Grammar' zurückgeben. Verwendet die BNF-Grammatik.
+	# Parse given grammar in BNF and return as instance of 'Grammar'. Uses the grammar for BNF.
 	def Grammar.fromBNF(str)
 		b = Grammar.BNF
 		s = nil
 		defs = b.parse(str).collectRecursive(b["BNF2"], b["Def"])
 		g = Grammar.new(defs.map { |df| df[1][1].collectString })
 		defs.each { |df|
-#			puts "foobar"
+#		   puts "foobar"
 			name = df[1][1].collectString
 			nt = g[name]
-			if(s == nil) then s = nt end		# Verwende das 1. definierte N-Symbol als Startsymbol
+			if(s == nil) then s = nt end		# Use the 1st defined Nonterminal symbol as start symbol
 			nt.rules = df[4].collectRecursive(b["Rules2"], b["Rule"]).map { |rule|
 				rule.collectRecursive(b["Rule"], b["Symbol"]).map { |sym|
 					if(sym.decision == 0)
@@ -267,10 +267,10 @@ class Grammar < Hash
 	end
 end
 
-# == Beispiel ==
+# == Example ==
 
-# Grammatik für arithmetische Ausdrücke in BNF angeben und einlesen
-# \t, \r sind hier escaped wegen ruby
+# Give grammar for arithmetic expressions in BNF and parse it
+# \t, \r are escaped because of ruby
 arith = Grammar.fromBNF(<<BNF)
 <E> ::= "(" <SpaceE> <E> <SpaceE> <Infix> <SpaceE> <E> <SpaceE> ")" | <Fun> <SpaceE> "(" <SpaceE> <E> <SpaceE> ")" | <Literal>
 <Infix> ::= "+" | "-" | "*" | "/" | "%"
@@ -278,14 +278,13 @@ arith = Grammar.fromBNF(<<BNF)
 <Literal> ::= <Digits> | <Digits> "." <Digits>
 <Digit> ::= "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
 <Digits> ::= <Digit> <DigitsE>
-<DigitsE> ::= <Digit> <DigitsE> | 
-<SpaceE> ::= <Space> | 
+<DigitsE> ::= <Digit> <DigitsE> |
+<SpaceE> ::= <Space> |
 <Space> ::= " " <SpaceE> | "\\t" <SpaceE> | "\\r" <SpaceE>
 BNF
 
 puts arith.to_s
 
-# Ausdruck parsen und Parser-Baum ausgeben
+# Parse expression and output parse tree
 expr = "((3+(7.9831*sqrt(33.5)))-sin(0.1234))"
 puts arith.parse(expr).inspect
-
